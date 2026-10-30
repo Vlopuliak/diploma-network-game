@@ -20,8 +20,10 @@ public class PlayerController : NetworkBehaviour
     [Header("Interaction Settings")]
     [SerializeField] private float interactDistance = 3f;
 
-    [Header("Flashlight")]
+    [Header("Flashlight & 3D Character Model")]
     [SerializeField] private Light flashlightLight;
+    [Tooltip("Перетягни сюди дочірній об'єкт character всередині префаба гравця")]
+    [SerializeField] private GameObject playerVisualRoot;
 
     public NetworkVariable<bool> IsFlashlightOn = new NetworkVariable<bool>(
         false,
@@ -68,6 +70,17 @@ public class PlayerController : NetworkBehaviour
             {
                 transform.position = spawnPoint.transform.position;
                 transform.rotation = spawnPoint.transform.rotation;
+            }
+
+            // Ховаємо полігони власної голови/тіла для локальної камери (залишаємо тільки тінь),
+            // при цьому другий гравець у мережі бачить нашу 3D-модель повністю!
+            if (playerVisualRoot != null)
+            {
+                Renderer[] renderers = playerVisualRoot.GetComponentsInChildren<Renderer>(true);
+                foreach (Renderer r in renderers)
+                {
+                    r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
+                }
             }
 
             NetworkBootstrapUI.SetPauseMenu(false);
