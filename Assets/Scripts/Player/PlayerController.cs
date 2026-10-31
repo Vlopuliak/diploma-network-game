@@ -190,6 +190,14 @@ public class PlayerController : NetworkBehaviour
         {
             transform.position += moveDirection * currentSpeed * Time.deltaTime;
 
+	 // Автоматичне слідування висоті сходинок та похилого пандуса бункера:
+        if (Physics.Raycast(transform.position + Vector3.up * 0.8f, Vector3.down, out RaycastHit groundHit, 5f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+        {
+            Vector3 p = transform.position;
+            p.y = Mathf.Lerp(p.y, groundHit.point.y + 1.0f, 18f * Time.deltaTime);
+            transform.position = p;
+        }
+
             // Якщо гравець БІЖИТЬ — генеруємо шум кроків для NPC
             if (IsSprinting && Time.time >= _nextFootstepTime)
             {
@@ -289,29 +297,36 @@ public class PlayerController : NetworkBehaviour
             NetworkKeypadTerminal.IsAnyTerminalOpen ||
             NetworkReadableNote.IsAnyNoteOpen) return;
 
-        GUIStyle style = new GUIStyle
+        string prompt = isSeated
+            ? "[Escape] ВСТАТИ З-ЗА СТОЛУ"
+            : (currentInteractable != null ? currentInteractable.GetPromptText() : "");
+
+        if (string.IsNullOrEmpty(prompt)) return;
+
+        // Стиль жовтої плашки Fears to Fathom для підказок взаємодії [E]
+        string formatted = $"“ {prompt.ToUpper()} ";
+        GUIStyle textStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 20,
+            fontSize = 16,
+            fontStyle = FontStyle.Bold,
             alignment = TextAnchor.MiddleCenter
         };
-        style.normal.textColor = Color.white;
+        textStyle.normal.textColor = new Color(0.08f, 0.08f, 0.08f, 1f);
 
-        float screenX = Screen.width / 2f;
-        float screenY = Screen.height / 2f + 40f;
+        Vector2 size = textStyle.CalcSize(new GUIContent(formatted));
+        float w = size.x + 20f;
+        float h = 28f;
+        float x = (Screen.width - w) / 2f;
+        float y = Screen.height / 2f + 38f;
 
-        if (isSeated)
-        {
-            GUI.Label(new Rect(screenX - 150, screenY, 300, 30), "[Escape] Встати з-за столу", style);
-            return;
-        }
+        Color prev = GUI.color;
+        GUI.color = new Color(0f, 0f, 0f, 0.65f);
+        GUI.DrawTexture(new Rect(x + 3f, y + 3f, w, h), Texture2D.whiteTexture);
 
-        if (currentInteractable != null)
-        {
-            string prompt = currentInteractable.GetPromptText();
-            if (!string.IsNullOrEmpty(prompt))
-            {
-                GUI.Label(new Rect(screenX - 150, screenY, 300, 30), prompt, style);
-            }
-        }
+        GUI.color = new Color(0.95f, 0.78f, 0.24f, 0.95f);
+        GUI.DrawTexture(new Rect(x, y, w, h), Texture2D.whiteTexture);
+        GUI.color = prev;
+
+        GUI.Label(new Rect(x, y, w, h), formatted, textStyle);
     }
 }
