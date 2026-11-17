@@ -43,6 +43,12 @@ public class PlayerController : NetworkBehaviour
 
     private float _defaultCamLocalY = 0.6f;
     private float _nextFootstepTime;
+    private double _nextCameraPoseSendTime;
+    private Vector2 _lastSentCameraPose;
+    private bool _hasSentCameraPose;
+    private bool _hasServerCameraPose;
+
+    public bool HasServerCameraPose => IsServer && cameraHolder != null && (IsOwner || _hasServerCameraPose);
 
     private void Awake()
     {
@@ -54,6 +60,9 @@ public class PlayerController : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
+        _hasSentCameraPose = false;
+        _hasServerCameraPose = false;
+        _nextCameraPoseSendTime = 0;
         IsFlashlightOn.OnValueChanged += OnFlashlightChanged;
         if (flashlightLight != null)
         {
@@ -88,7 +97,47 @@ public class PlayerController : NetworkBehaviour
 
     public override void OnNetworkDespawn()
     {
+        _hasServerCameraPose = false;
+        _hasSentCameraPose = false;
         IsFlashlightOn.OnValueChanged -= OnFlashlightChanged;
+    }
+
+    private void LateUpdate()
+    {
+        // Runs after input and seat changes, including frames where Update returns for a menu.
+        if (!IsSpawned || !IsOwner || IsServer || cameraHolder == null ||
+            Time.unscaledTimeAsDouble < _nextCameraPoseSendTime)
+            return;
+
+        var pose = new Vector2(Mathf.DeltaAngle(0f, cameraHolder.localEulerAngles.x), cameraHolder.localPosition.y);
+        if (_hasSentCameraPose && Mathf.Abs(pose.x - _lastSentCameraPose.x) < 0.1f &&
+            Mathf.Abs(pose.y - _lastSentCameraPose.y) < 0.001f)
+            return;
+
+        SyncCameraPoseServerRpc(pose.x, pose.y);
+        _lastSentCameraPose = pose;
+        _hasSentCameraPose = true;
+        _nextCameraPoseSendTime = Time.unscaledTimeAsDouble + 0.1;
+    }
+
+    [ServerRpc]
+    private void SyncCameraPoseServerRpc(float pitch, float localHeight, ServerRpcParams rpcParams = default)
+    {
+        if (!IsServer || cameraHolder == null || rpcParams.Receive.SenderClientId != OwnerClientId ||
+            !float.IsFinite(pitch) || !float.IsFinite(localHeight))
+            return;
+
+        // The same limits are used by mouse look and crouching in the local controller.
+        pitch = Mathf.Clamp(pitch, -80f, 80f);
+        localHeight = Mathf.Clamp(localHeight, _defaultCamLocalY - 0.45f, _defaultCamLocalY);
+        if (!IsOwner)
+        {
+            cameraHolder.localRotation = Quaternion.Euler(pitch, 0f, 0f);
+            Vector3 position = cameraHolder.localPosition;
+            position.y = localHeight;
+            cameraHolder.localPosition = position;
+        }
+        _hasServerCameraPose = true;
     }
 
     private void OnFlashlightChanged(bool previousValue, bool newValue)
