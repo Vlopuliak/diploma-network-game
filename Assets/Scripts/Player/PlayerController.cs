@@ -115,9 +115,15 @@ public class PlayerController : NetworkBehaviour
     {
         if (!IsOwner) return;
 
-        // 0. Обробка клавіші [Escape] (спочатку закриває записку, термінал або стіл, інакше відкриває паузу)
+        // 0. Обробка клавіші [Escape] (спочатку закриває комп'ютер GRiD-87, записку, термінал або стіл, інакше відкриває паузу)
         if (Input.GetKeyDown(KeyCode.Escape))
         {
+            if (NetworkGridOsTerminal.IsAnyGridTerminalOpen)
+            {
+                NetworkGridOsTerminal.ActiveLocalTerminal.CloseTerminal();
+                return;
+            }
+
             if (NetworkReadableNote.IsAnyNoteOpen)
             {
                 NetworkReadableNote.ActiveLocalNote.CloseNoteUi();
@@ -143,8 +149,9 @@ public class PlayerController : NetworkBehaviour
             return;
         }
 
-        // Якщо відкрита пауза, термінал, записка або гравець сидить за столом — рух заблоковано
+        // Якщо відкрита пауза, комп'ютер GRiD-87, термінал, записка або гравець сидить за столом — рух заблоковано
         if (NetworkBootstrapUI.IsPauseMenuOpen ||
+            NetworkGridOsTerminal.IsAnyGridTerminalOpen ||
             NetworkKeypadTerminal.IsAnyTerminalOpen ||
             NetworkReadableNote.IsAnyNoteOpen ||
             isSeated)
@@ -190,13 +197,13 @@ public class PlayerController : NetworkBehaviour
         {
             transform.position += moveDirection * currentSpeed * Time.deltaTime;
 
-	 // Автоматичне слідування висоті сходинок та похилого пандуса бункера:
-        if (Physics.Raycast(transform.position + Vector3.up * 0.8f, Vector3.down, out RaycastHit groundHit, 5f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
-        {
-            Vector3 p = transform.position;
-            p.y = Mathf.Lerp(p.y, groundHit.point.y + 1.0f, 18f * Time.deltaTime);
-            transform.position = p;
-        }
+            // Автоматичне слідування висоті сходинок та похилого пандуса бункера:
+            if (Physics.Raycast(transform.position + Vector3.up * 0.8f, Vector3.down, out RaycastHit groundHit, 5f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            {
+                Vector3 p = transform.position;
+                p.y = Mathf.Lerp(p.y, groundHit.point.y + 1.0f, 18f * Time.deltaTime);
+                transform.position = p;
+            }
 
             // Якщо гравець БІЖИТЬ — генеруємо шум кроків для NPC
             if (IsSprinting && Time.time >= _nextFootstepTime)
@@ -294,6 +301,7 @@ public class PlayerController : NetworkBehaviour
     {
         if (!IsOwner ||
             NetworkBootstrapUI.IsPauseMenuOpen ||
+            NetworkGridOsTerminal.IsAnyGridTerminalOpen ||
             NetworkKeypadTerminal.IsAnyTerminalOpen ||
             NetworkReadableNote.IsAnyNoteOpen) return;
 

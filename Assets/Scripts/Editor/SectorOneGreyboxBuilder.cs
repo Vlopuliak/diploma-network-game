@@ -148,7 +148,121 @@ public static class SectorOneGreyboxBuilder
         PlaceIfFound("SpawnPoint_1", new Vector3(-1.8f, UndergroundY + 1.05f, 2.5f), Quaternion.identity);
         PlaceIfFound("SpawnPoint_2", new Vector3(1.8f, UndergroundY + 1.05f, 2.5f), Quaternion.identity);
     }
+[MenuItem("The Copy/5. Встановити ПАЗЛ ПРОЛОГУ (Комп'ютери GRiD-87 + Заслінка + Парні Важелі)")]
+    public static void SetupProloguePuzzleObjects()
+    {
+        GameObject oldPuzzle = GameObject.Find("Prologue_Coop_Puzzle_System");
+        if (oldPuzzle != null)
+        {
+            Undo.DestroyObjectImmediate(oldPuzzle);
+        }
 
+        GameObject puzzleRoot = new GameObject("Prologue_Coop_Puzzle_System");
+        Undo.RegisterCreatedObjectUndo(puzzleRoot, "Setup Prologue Puzzle");
+
+        float uy = UndergroundY; // -4.5m
+
+        // 1. ВЕРХНЯ ЗАХИСНА ГЕРМОЗАСЛІНКА НА ВХОДІ В СПУСК БУНКЕРА (Z = -19.5, Y = 1.45m)
+        GameObject outerShutter = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        outerShutter.name = "Outer_Ramp_BlastShutter";
+        outerShutter.transform.SetParent(puzzleRoot.transform);
+        outerShutter.transform.position = new Vector3(0f, 1.45f, -19.5f);
+        outerShutter.transform.localScale = new Vector3(10.4f, 3.1f, 0.45f);
+        outerShutter.GetComponent<Renderer>().sharedMaterial = CreateMat("Mat_ShutterSteel", new Color(0.22f, 0.24f, 0.25f), 0.5f);
+        outerShutter.AddComponent<Unity.Netcode.NetworkObject>();
+        NetworkAirlockDoor shutterScript = outerShutter.AddComponent<NetworkAirlockDoor>();
+
+        // 2. КОМП'ЮТЕР 1 (ДІАГНОСТИКА В БУДЦІ КПП ОХОРОНИ: X = -8.8, Y = 1.12, Z = -50.8)
+        GameObject diagPc = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        diagPc.name = "GRiD87_Terminal_Diagnostics_Guardhouse";
+        diagPc.transform.SetParent(puzzleRoot.transform);
+        diagPc.transform.position = new Vector3(-8.8f, 1.12f, -50.8f);
+        diagPc.transform.localScale = new Vector3(0.55f, 0.48f, 0.55f);
+        diagPc.transform.rotation = Quaternion.Euler(0f, -90f, 0f);
+        diagPc.GetComponent<Renderer>().sharedMaterial = CreateEmissiveMat("Mat_GridAmberPC1", new Color(0.9f, 0.6f, 0.1f), new Color(1f, 0.65f, 0.1f) * 1.8f);
+        diagPc.AddComponent<Unity.Netcode.NetworkObject>();
+        NetworkGridOsTerminal diagTerm = diagPc.AddComponent<NetworkGridOsTerminal>();
+
+        SerializedObject soDiag = new SerializedObject(diagTerm);
+        soDiag.FindProperty("role").enumValueIndex = (int)NetworkGridOsTerminal.TerminalRole.DiagnosticsNode_Guardhouse;
+        soDiag.ApplyModifiedProperties();
+
+        // 3. КОМП'ЮТЕР 2 (ГОЛОВНИЙ ТЕРМІНАЛ GRiD-87 У СХІДНОМУ КОРПУСІ: X = 21.6, Y = 1.15, Z = -16.5)
+        GameObject masterPc = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        masterPc.name = "GRiD87_Terminal_Master_EastLab";
+        masterPc.transform.SetParent(puzzleRoot.transform);
+        masterPc.transform.position = new Vector3(21.6f, 1.15f, -16.5f);
+        masterPc.transform.localScale = new Vector3(0.6f, 0.52f, 0.6f);
+        masterPc.GetComponent<Renderer>().sharedMaterial = CreateEmissiveMat("Mat_GridAmberPC2", new Color(0.95f, 0.65f, 0.12f), new Color(1f, 0.7f, 0.15f) * 2.0f);
+        masterPc.AddComponent<Unity.Netcode.NetworkObject>();
+        NetworkGridOsTerminal masterTerm = masterPc.AddComponent<NetworkGridOsTerminal>();
+
+        // 4. ЛІВИЙ ТА ПРАВИЙ СИНХРОННІ ВАЖЕЛІ ВНИЗУ СПУСКУ БІЛЯ ГЕРМОДВЕРЕЙ (Z = -0.75, Y = -3.15m)
+        GameObject mainBunkerDoorObj = GameObject.Find("Airlock_Door");
+        NetworkAirlockDoor mainBunkerDoor = mainBunkerDoorObj != null ? mainBunkerDoorObj.GetComponent<NetworkAirlockDoor>() : null;
+        GameObject mainPowerNodeObj = GameObject.Find("Interactive_Terminal");
+        NetworkInteractiveObject mainPowerNode = mainPowerNodeObj != null ? mainPowerNodeObj.GetComponent<NetworkInteractiveObject>() : null;
+
+        GameObject leftLeverObj = CreateLeverObject("Coop_SyncLever_Left", puzzleRoot.transform, new Vector3(-2.3f, uy + 1.35f, -0.75f), out Transform leftHandle);
+        GameObject rightLeverObj = CreateLeverObject("Coop_SyncLever_Right", puzzleRoot.transform, new Vector3(2.3f, uy + 1.35f, -0.75f), out Transform rightHandle);
+
+        NetworkCoopSyncLever leftLever = leftLeverObj.GetComponent<NetworkCoopSyncLever>();
+        NetworkCoopSyncLever rightLever = rightLeverObj.GetComponent<NetworkCoopSyncLever>();
+
+        SerializedObject soMaster = new SerializedObject(masterTerm);
+        soMaster.FindProperty("role").enumValueIndex = (int)NetworkGridOsTerminal.TerminalRole.MasterControl_EastLab;
+        soMaster.FindProperty("outerRampShutterDoor").objectReferenceValue = shutterScript;
+        soMaster.ApplyModifiedProperties();
+
+        ConfigureLeverSerializedFields(leftLever, "Лівий гідроважіль (А)", rightLever, masterTerm, mainBunkerDoor, mainPowerNode, leftHandle);
+        ConfigureLeverSerializedFields(rightLever, "Правий гідроважіль (Б)", leftLever, masterTerm, mainBunkerDoor, mainPowerNode, rightHandle);
+
+        Debug.Log("[Prologue Puzzle] Комп'ютери GRiD-87, Верхню заслінку спуску та Синхронні Важелі бункера успішно створено і з'єднано!");
+    }
+
+    private static GameObject CreateLeverObject(string name, Transform parent, Vector3 pos, out Transform handlePivot)
+    {
+        GameObject box = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        box.name = name;
+        box.transform.SetParent(parent);
+        box.transform.position = pos;
+        box.transform.localScale = new Vector3(0.42f, 0.68f, 0.25f);
+        box.AddComponent<Unity.Netcode.NetworkObject>();
+        box.AddComponent<NetworkCoopSyncLever>();
+
+        GameObject pivot = new GameObject("Handle_Pivot");
+        pivot.transform.SetParent(box.transform);
+        pivot.transform.localPosition = new Vector3(0f, 0.1f, -0.4f);
+
+        GameObject stick = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        stick.name = "Lever_Stick";
+        Object.DestroyImmediate(stick.GetComponent<Collider>());
+        stick.transform.SetParent(pivot.transform);
+        stick.transform.localPosition = new Vector3(0f, 0f, -0.35f);
+        stick.transform.localScale = new Vector3(0.18f, 0.18f, 0.85f);
+
+        handlePivot = pivot.transform;
+        return box;
+    }
+
+    private static void ConfigureLeverSerializedFields(
+        NetworkCoopSyncLever lever,
+        string title,
+        NetworkCoopSyncLever partner,
+        NetworkGridOsTerminal gridPc,
+        NetworkAirlockDoor door,
+        NetworkInteractiveObject powerNode,
+        Transform handle)
+    {
+        SerializedObject so = new SerializedObject(lever);
+        so.FindProperty("leverName").stringValue = title;
+        so.FindProperty("partnerLever").objectReferenceValue = partner;
+        so.FindProperty("requiredGridComputer").objectReferenceValue = gridPc;
+        so.FindProperty("targetBunkerDoor").objectReferenceValue = door;
+        so.FindProperty("targetPowerNode").objectReferenceValue = powerNode;
+        so.FindProperty("handlePivot").objectReferenceValue = handle;
+        so.ApplyModifiedProperties();
+    }
     private static void ConfigureAtmosphereAndLighting()
     {
         RenderSettings.fog = true;
