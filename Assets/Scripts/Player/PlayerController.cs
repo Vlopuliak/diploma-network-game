@@ -1,3 +1,4 @@
+using TheCopy.AI;
 using TheCopy.Shared;
 using Unity.Netcode;
 using UnityEngine;
@@ -205,14 +206,16 @@ public class PlayerController : NetworkBehaviour
     }
 
     [ServerRpc]
-    private void EmitFootstepNoiseServerRpc(float loudness)
+    private void EmitFootstepNoiseServerRpc(float loudness, ServerRpcParams rpcParams = default)
     {
+        loudness = Mathf.Clamp01(loudness);
         NoiseDispatcher.EmitOnServer(new NoiseEvent
         {
             Position = transform.position,
-            Loudness = Mathf.Clamp01(loudness),
+            Loudness = loudness,
             Source = NoiseSource.PlayerFootstep
         });
+        CopyPlayerNoise.TryPublish(NetworkManager, rpcParams.Receive.SenderClientId, NoiseSource.PlayerFootstep, loudness);
     }
 
     public void EnterSeat(ChessSeat seat, Transform seatViewPoint)

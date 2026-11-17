@@ -1,3 +1,4 @@
+using TheCopy.AI;
 using TheCopy.Shared;
 using Unity.Netcode;
 using UnityEngine;
@@ -268,7 +269,8 @@ namespace TheCopy.Networking
         }
 
         [ServerRpc]
-        private void SendVoicePacketServerRpc(byte[] pcm16Data, float normalizedLoudness, bool radioMode)
+        private void SendVoicePacketServerRpc(
+            byte[] pcm16Data, float normalizedLoudness, bool radioMode, ServerRpcParams rpcParams = default)
         {
             normalizedLoudness = Mathf.Clamp01(normalizedLoudness);
             SyncedVoiceLoudness.Value = normalizedLoudness;
@@ -281,6 +283,8 @@ namespace TheCopy.Networking
                     Loudness = normalizedLoudness,
                     Source = NoiseSource.PlayerVoice
                 });
+                CopyPlayerNoise.TryPublish(
+                    NetworkManager, rpcParams.Receive.SenderClientId, NoiseSource.PlayerVoice, normalizedLoudness);
             }
 
             ReceiveVoicePacketClientRpc(pcm16Data, radioMode);
