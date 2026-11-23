@@ -49,6 +49,8 @@ namespace TheCopy.Tests
             bindings.FindProperty("airlock").objectReferenceValue = Find<NetworkAirlockDoor>("Airlock_Door");
             bindings.FindProperty("keypad").objectReferenceValue = Find<NetworkKeypadTerminal>("Keypad_Terminal");
             bindings.ApplyModifiedPropertiesWithoutUndo();
+            if (P403NpcInteractionVerification.Requested)
+                P403NpcInteractionVerification.Prepare(probe, Find<NetworkInteractiveObject>("Interactive_Terminal"));
             if (P307ObservationVerification.Requested)
                 P307ObservationVerification.PrepareScene();
             if (!EditorSceneManager.SaveScene(scene))
@@ -182,6 +184,8 @@ namespace TheCopy.Tests
                 yield return P307ObservationVerification.Verify(host, probe);
             if (P403DecisionVerification.Requested)
                 P403DecisionVerification.Verify(host, probe);
+            if (P403NpcInteractionVerification.Requested)
+                yield return P403NpcInteractionVerification.Verify(host, probe, power, door, context);
             host.Shutdown();
             yield return Await(() => !host.IsListening, "scene host stops");
             Application.logMessageReceived -= TrackError;

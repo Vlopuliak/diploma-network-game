@@ -1,0 +1,15 @@
+{
+  "status": "frozen-single-decision-not-trained",
+  "scope": "single-decision-sensory-intent",
+  "enabledIntentIndices": [0, 1, 2, 3, 4],
+  "actionExecution": false,
+  "behaviorName": "TheCopyDraft2",
+  "snapshotSchema": "the-copy.decision-snapshot/sensory-intent-v1",
+  "inputSchema": "the-copy.decision-input/sensory-intent-v1",
+  "vectorObservationSize": 50,
+  "stackedVectors": 1,
+  "discreteBranches": [7],
+  "permanentlyMaskedActions": [5, 6],
+  "compatibleModel": null,
+  "trainingRun": null
+}

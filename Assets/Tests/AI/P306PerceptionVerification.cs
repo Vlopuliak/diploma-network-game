@@ -25,6 +25,14 @@ namespace TheCopy.Tests
             npc.AddComponent<CopySceneContext>();
             npc.AddComponent<CopyPerception>();
             npc.AddComponent<CopyDecisionInput>();
+            if (P403PlayerSightVerification.Requested)
+                npc.AddComponent<CopyPlayerPerception>();
+            if (P403DecisionV2Verification.Requested)
+                npc.AddComponent<CopyDecisionInputV2>();
+            if (P403AgentVerification.Requested)
+                P403AgentVerification.Prepare(npc);
+            if (P404TraceVerification.Requested)
+                P404TraceVerification.Prepare(npc);
 
             CreateSource<NetworkTriggerZone>(folder);
             CreateSource<NetworkInteractiveObject>(folder);
@@ -161,6 +169,7 @@ namespace TheCopy.Tests
             switches.GetArrayElementAtIndex(0).objectReferenceValue = power;
             doorSettings.ApplyModifiedPropertiesWithoutUndo();
             zone.NetworkObject.Spawn();
+            power.NetworkObject.SpawnWithObservers = true;
             power.NetworkObject.Spawn();
             door.NetworkObject.Spawn();
             keypad.NetworkObject.Spawn();
@@ -194,7 +203,34 @@ namespace TheCopy.Tests
             keypad.NetworkObject.Despawn(false);
             yield return Await(() => changes > settled && changed.KeypadUnlocked == null,
                 "despawned source returns to unknown");
+            yield return Await(() => client.SpawnManager.SpawnedObjects.ContainsKey(power.NetworkObjectId),
+                "power node replica reaches remote client");
+            var clientPower = client.SpawnManager.SpawnedObjects[power.NetworkObjectId].GetComponent<NetworkInteractiveObject>();
+            yield return Await(() => clientPower.IsActive.Value, "remote client receives initial powered state before NPC change");
+            Expect(!clientPower.CanSetActiveFromNpc(clientNpc, false) && !clientPower.TrySetActiveFromNpc(clientNpc, false),
+                "client replica cannot execute server NPC API");
+            Expect(!power.TrySetActiveFromNpc(clientNpc, false), "foreign-manager actor rejected");
+            Expect(!power.TrySetActiveFromNpc(door.NetworkObject, false), "unmarked server actor rejected");
+            npc.transform.position = power.transform.position + Vector3.left;
+            npc.NetworkObject.ChangeOwnership(client.LocalClientId);
+            Expect(!power.TrySetActiveFromNpc(npc.NetworkObject, false), "client-owned NPC rejected by server");
+            npc.NetworkObject.RemoveOwnership();
+            power.enabled = false;
+            Expect(!power.TrySetActiveFromNpc(npc.NetworkObject, false), "disabled power node rejects NPC");
+            power.enabled = true;
+            Expect(power.TrySetActiveFromNpc(npc.NetworkObject, false), "server-owned NPC executes validated interaction");
+            yield return Await(() => !clientPower.IsActive.Value, "NPC power state replicates to remote client");
             Debug.Log("[P3-06] COMPLETE: flashlight and scene context");
+            if (P403DecisionV2Verification.Requested)
+                P403DecisionV2Verification.Verify(host, client, npc);
+            if (P403PlayerSightVerification.Requested)
+            {
+                if (P403AgentVerification.Requested)
+                    yield return P403AgentVerification.Verify(host, client, npc);
+                if (P404TraceVerification.Requested)
+                    P404TraceVerification.Verify(host, client, npc);
+                yield return P403PlayerSightVerification.Verify(host, client, npc);
+            }
         }
 
         private static void CreateSource<T>(string folder) where T : NetworkBehaviour
