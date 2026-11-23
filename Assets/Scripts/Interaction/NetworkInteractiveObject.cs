@@ -1,4 +1,5 @@
 using System;
+using TheCopy.AI;
 using TheCopy.Shared;
 using Unity.Netcode;
 using UnityEngine;
@@ -70,6 +71,29 @@ public class NetworkInteractiveObject : NetworkBehaviour, IInteractable
         ToggleStateServerRpc();
     }
 
+    // Server-side execution guard. Scene permissions belong to the calling NPC adapter.
+    public bool CanSetActiveFromNpc(NetworkObject npc, bool active)
+    {
+        if (!IsServer || !IsSpawned || !isActiveAndEnabled || npc == null || !npc.IsSpawned ||
+            !npc.IsOwnedByServer || npc.IsPlayerObject || npc.NetworkManager != NetworkManager ||
+            !npc.TryGetComponent(out CopyPerception perception) || !perception.isActiveAndEnabled)
+            return false;
+
+        float distance = Vector3.Distance(transform.position, npc.transform.position);
+        return float.IsFinite(distance) && distance <= maxServerInteractDistance &&
+            (IsActive.Value == active || Time.time - _lastToggleTime >= cooldownSeconds);
+    }
+
+    // A valid retry of an already satisfied state succeeds without noise or a new cooldown.
+    public bool TrySetActiveFromNpc(NetworkObject npc, bool active)
+    {
+        if (!CanSetActiveFromNpc(npc, active))
+            return false;
+        if (IsActive.Value != active)
+            ApplyState(active);
+        return true;
+    }
+
     [ServerRpc(RequireOwnership = false)]
     private void ToggleStateServerRpc(ServerRpcParams rpcParams = default)
     {
@@ -85,8 +109,13 @@ public class NetworkInteractiveObject : NetworkBehaviour, IInteractable
             if (dist > maxServerInteractDistance) return;
         }
 
+        ApplyState(!IsActive.Value);
+    }
+
+    private void ApplyState(bool active)
+    {
         _lastToggleTime = Time.time;
-        IsActive.Value = !IsActive.Value;
+        IsActive.Value = active;
 
         // 3. Генеруємо звук клацання реле для ШІ (NoiseSource.Environmental)
         if (switchNoiseLoudness > 0.01f)

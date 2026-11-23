@@ -74,6 +74,13 @@ namespace TheCopy.AI
             Quaternion observerRotation, float[] observations, out CopyDecisionCandidates candidates)
         {
             ClearObservations(observations);
+            return TryEncodeCore(snapshot, observerPosition, observerRotation, observations, out candidates);
+        }
+
+        // Callers own buffer length validation and clearing; the first 40 fields are shared by versioned encoders.
+        internal static bool TryEncodeCore(CopyPerceptionSnapshot snapshot, Vector3 observerPosition,
+            Quaternion observerRotation, float[] observations, out CopyDecisionCandidates candidates)
+        {
             candidates = default;
             float rotationNorm = Quaternion.Dot(observerRotation, observerRotation);
             if (!double.IsFinite(snapshot.CapturedAt) || snapshot.CapturedAt < 0 || !Finite(observerPosition) ||
@@ -155,7 +162,7 @@ namespace TheCopy.AI
             observations[offset + 11] = value.SourceClientId.HasValue ? 1f : 0f;
         }
 
-        private static void WritePosition(Vector3 position, int offset, Vector3 origin,
+        internal static void WritePosition(Vector3 position, int offset, Vector3 origin,
             Quaternion inverse, float[] observations)
         {
             Vector3 local = inverse * (position - origin);
