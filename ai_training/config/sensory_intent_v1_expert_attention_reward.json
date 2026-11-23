@@ -1,0 +1,16 @@
+{
+  "profile_id": "the-copy.expert-attention/1",
+  "input_schema": "the-copy.decision-input/sensory-intent-v1",
+  "observation_count": 50,
+  "action_count": 7,
+  "scope": "single-decision-surrogate-no-action-execution",
+  "sound": "memory-strength-else-live-strength",
+  "light": "perceived-strength-exact-aim-only",
+  "player": "floor-plus-remaining-normalized-distance",
+  "player_floor": 0.01,
+  "continue": "one-if-no-sensory-action-else-zero",
+  "normalization": "utility-divided-by-maximum-allowed-utility",
+  "invalid_action_reward": -1,
+  "technical_outcome_reward": null,
+  "baselines": ["uniform-allowed", "first-allowed-sensory", "argmax-expert"]
+}
