@@ -1,0 +1,41 @@
+# P4-05 · Керовані рецепти й перевірка сенсорного збору
+
+2026-11-23. Погоджено [дизайн наборів](AI_NPC_P405_DATASET_PROPOSAL.md) без навчання. Цей зріз продовжує наявний sensory-intent-v1 та [протокол оцінювання](AI_NPC_P404_EVALUATION_PROTOCOL.md). Production-сцени, компоненти напарника та залежності не змінюються.
+
+## Реалізація
+
+- [CopyDecisionTrace](../Assets/Scripts/AI/TheCopy/CopyDecisionTrace.cs) зберігає копію 50 входів запиту **до** очищення буфера. `CopyObservations()` повертає нову копію кожному споживачеві; подальші сенсорні зміни чи модифікація отриманого масиву не змінюють trace. Це дані запиту, не повторне захоплення світу після відповіді. [Agent](../Assets/Scripts/AI/TheCopy/CopyDecisionAgent.cs) додає їх як для callback, так і для скасування. Вибір дій і старий формат recorder-а не змінено.
+- [Diagnostic-runner](../Assets/Tests/AI/P405AttentionCaseVerification.cs): 8 окремих реальних CPU-forward ненавченої моделі. Сценарії quiet, sound-live, sound-memory, light, player-a, player-b, both-players, competition із реальними hearing/memory/light/player sensors та чинним кодером. ID гравців — Host і NGO Client; звукова подія подається через `CopyPlayerNoise.TryPublish`, не мікрофон і не новий RPC. Голосові RPC окремо проходять попередню регресію.
+- [Генератор рецептів](../ai_training/cases/sensory_intent_cases.py), [погоджений JSON-дизайн](../ai_training/config/sensory_intent_v1_dataset_design.json): 449 train, 225 ID, 225 OOD, seeds 1001/2001/3001. Маніфести й SHA-256 створюються до replay. Існуючий каталог не перезаписується. Генератор не обчислює 50-вектор, reward чи відповідь NN. [Аудит створених рецептів](../Logs/AI-NPC/P4-05-recipe-plan-20261123/generation-audit.json).
+- [Sensor-only replay](../Assets/Tests/AI/P405RecipeVerification.cs): тільки train/ID. Читає рецепти з disposable Logs, ставить геометрію, скидає пам’ять, задає звук/промінь та захоплює реальні 50 ознак і маску через `CopyDecisionInputV2`. Driver NN вимкнений, запитів політики й reward немає. Новий формат `the-copy.attention-sensor-input/1` навмисно не містить action і не є результатом оцінювання NN.
+- [Валідатор replay](../ai_training/cases/validate_sensor_replay.py) перевіряє frozen hashes, відтворюваність рецептів, повноту case_id/scenario, sensor/mask contract, потрібний стан кожної родини й дублі векторів після округлення до 6 знаків. Quiet — явний повторюваний контроль; active duplicates відхиляються. OOD-вектори не читаються.
+- [Launcher](../tools/Verify-P305.ps1) має `-VerifyAttentionCases` та `-RecipePlan`. Helpers [attention evidence](../tools/Export-AINpcAttentionEvidence.ps1) і [recipe evidence](../tools/Export-AINpcRecipeEvidence.ps1) зберігають артефакти поза тимчасовою копією; перевіряють containment шляхів і запускають відповідні Python-інструменти. Фіксуються хеші фактично виконаних scratch-скриптів і даних, а не тільки HEAD брудного checkout.
+
+Маніфест diagnostic-runner-а записується до першого запиту; на ньому split=diagnostic, policy_id=untrained-neural-diagnostic. Для кожного рецепта sensor replay обліковуються live/memory, light і A/B; за невідповідності тест падає, не замінює випадок іншим. Керування гравцями, мікрофонні emitters та зайві AudioListener-и вимкнені лише у стенді й відновлюються після нього. Контекст механізмів у цьому наборі не варіюється й не є прихованою навчальною метою.
+
+## Відтворення
+
+```powershell
+# У новий каталог: генератор відмовиться перезаписувати вже заморожені рецепти.
+python -B ai_training/cases/sensory_intent_cases.py --output Logs/AI-NPC/my-p405-plan
+./tools/Verify-P305.ps1 -UseWebSockets -RecipePlan Logs/AI-NPC/my-p405-plan -MlPython 'D:/PROGS/anaconda3/envs/project-s-ml/python.exe' -KeepWorkspace
+```
+
+Для перевірки тільки 8 diagnostic NN-випадків: той самий launcher із `-VerifyAttentionCases` замість `-RecipePlan`. ML Python повинен уже мати torch/mlagents/onnx; пакетів цей launcher не встановлює. Smoke-модель експортується з 0 training steps лише в Logs/тимчасові Assets.
+
+У цій сесії використано наявну підготовлену копію `p305-workspace-445f2aa1` із синхронізованими зміненими файлами. Unity запускали безпосередньо з тими самими прапорами, helpers — окремо; новий повний cold-copy маршрут `-RecipePlan` не запускався. Синтаксис PowerShell перевірено.
+
+## Фактичні докази
+
+- **8 diagnostic записів:** [маніфест](../Logs/AI-NPC/P4-05-cases-final-evidence-20261123/manifest.json), [JSONL](../Logs/AI-NPC/P4-05-cases-final-evidence-20261123/records.jsonl), [метрики](../Logs/AI-NPC/P4-05-cases-final-evidence-20261123/metrics.json), [provenance](../Logs/AI-NPC/P4-05-cases-final-evidence-20261123/provenance.json), [хеші](../Logs/AI-NPC/P4-05-cases-final-evidence-20261123/verification-context.json). Complete=true, 8/8, accepted-invalid=0; gate=`not_assessed_train_or_diagnostic_split`. Mean reward=0.5 на 8 навмисно малих контрольованих випадках ненавченої моделі — не якість навченої політики й не ID/OOD. Не використовувати цей набір для вибору фінальної моделі.
+- **Unity diagnostic/regression:** [журнал](../Logs/AI-NPC/P4-05-cases-final-20261123.log), **88 нових + 186 попередніх = 274/274 PASS**, exit 0. Перевірено точну копію входів і масок запиту, захист від мутації, збереження після callback/reset/cancel, реальні сенсорні стани та фактичний forward. Після цього тестовий стенд додатково вимикає AudioListener-и під час довгого replay.
+- **Фінальний replay:** [Unity-журнал](../Logs/AI-NPC/P4-05-replay-locked-20261123.log), exit 0, **3758/3758 sensor-replay assertions + 274/274 diagnostic/regression PASS**. Захоплено всі 449 train та 225 ID. [Аудит](../Logs/AI-NPC/P4-05-replay-evidence-20261123/sensor-audit.json) підтвердив повноту, frozen hashes і стан сенсорів; active vector duplicates=0 після округлення до 6 знаків, quiet repetition=1 між train/ID. [Хеші виконаного коду й даних](../Logs/AI-NPC/P4-05-replay-evidence-20261123/verification-context.json). Model requests=0, training steps=0, OOD vectors read=false саме в sensor replay. Окремі 8 diagnostic forward у тому ж fixture збережено [тут](../Logs/AI-NPC/P4-05-diagnostic-evidence-locked-20261123/metrics.json); вони не входять у train/ID/OOD.
+- **Python:** 11 нових тестів генератора/валідації + 86 попередніх = **97/97 PASS** на Python 3.13.7 та 3.10.12. [Системний журнал](../Logs/AI-NPC/P4-05-python-tests-20261123.log), [ML Python](../Logs/AI-NPC/P4-05-python-tests-py310-20261123.log). Перевірено відтворюваність, баланс, disjoint case_id, діапазони, hashes/manifest, відмову перезапису frozen output та відмову зміненому рецепту до читання capture.
+
+Перші два масові replay не завершилися в межах таймауту й **не є PASS**: [перший](../Logs/AI-NPC/P4-05-replay-20261123.log), [другий](../Logs/AI-NPC/P4-05-replay-final-20261123.log). У другому журналі підтверджено deferred compilation/domain reload, який знищив coroutine посеред memory-випадків. У disposable batch Editor додано reload lock до завершення всього fixture зі звільненням при quitting; очікування пам’яті має окремий timeout, кадри обмежені до 60, зайві AudioListener-и вимкнені. Неповні captures з цих запусків не є frozen сенсорним набором. Відомий виняток UnityEditor.Search.IndexationOnStartup та попередження застарілих API відділені від NPC-перевірок.
+
+## Межі й наступний крок
+
+**P4-05 Done для погодженого першого набору рецептів та train/ID sensor replay.** Зафіксовано всі 899 рецептів/маніфестів і generation seeds; дослідницькі OOD-запити свідомо відкладені. Це завершення підготовки керованих випадків, а не готовий тренер або підтвердження NN-критеріїв. Наступний P4-06 потребує навчального адаптера з reward/reset за рецептами, preflight і окремого погодження запусків PPO. Автоматично до навчання не переходити.
+
+OOD-рецепти зафіксовані, але не відтворювалися в Unity і не давали NN-відповідей чи reward. Перевірка відмінності їхніх **реально захоплених** ознак лишається для окремого ізольованого запуску; генератор уже перевіряє параметричні області. Replay train/ID є перевіркою збору ознак, не навчальним Agent-ом. Підключення reward/EndEpisode до окремого навчального контуру, незалежні PPO-запуски та оцінювання моделі — наступні задачі. Не називати ці рецепти доказом фізичної допомоги або адаптивного розв’язання кооперативної головоломки.

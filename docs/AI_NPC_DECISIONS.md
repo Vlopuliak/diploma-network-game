@@ -1,5 +1,61 @@
 # The Copy · Архітектурні рішення
 
+## D-23 · Погоджений пілот із окремим доказом оптимізації
+
+**Погоджено, виконано й перевірено 2026-11-24, P4-06 In Progress.** Користувач дозволив підготовлений PPO-пілот: seed=11, shuffle=7011, 20 train-проходів / 8980 рішень, runtime budget=3600 с. Training sources/config після старту не змінювалися; жодні додаткові seeds/довші навчання цим погодженням не дозволені. Supervisor зберіг явний запис погодження й старту.
+
+Критерій технічного результату — не сам факт підключення TrainerController: перевірено valid run, 8980 trainer/global steps, **96 Adam steps** із ненульовими finite moments, finite policy tensors та ONNX checker/50/[7]. Новий post-inspector працює тільки після завершення й не змінює training pipeline. Пілот не закриває P4-06, не є ID/OOD оцінкою й не підключає модель у production. SDK shutdown diagnostics лишилися в журналі; фінальний стан/артефакти й відсутність залишкових дочірніх процесів перевірено, коректне планове завершення — наступна задача. [Фактичний run і докази](AI_NPC_P406_PILOT_VERIFICATION.md)
+
+## D-22 · Окремий supervisor, immutable prepare та відбракування run
+
+**Реалізовано й перевірено без optimizer 2026-11-24, P4-06 In Progress.** Supervisor керує власними Unity та Python-worker процесами, зберігає PID, schedule/config/source hashes і перевіряє їх перед запуском. Prepare/preflight не створюють trainer. Run одноразовий; Aborted, timeout або child failure відбраковують увесь запуск і зупиняють власне дерево процесів, без автоматичного restart/resume. Артефакти невдалого run зберігаються для розбору, не вибираються як модель.
+
+API-worker uniform allowed random є клієнтом перевірки SDK, не заміною ігрової NN. PPO-worker підготовлений для офіційного SDK run_cli, але ще не виконувався. --execute-ppo захищає від випадкового запуску й не замінює згоду користувача. Для Editor зафіксовано port=5004 за фактичним кодом SDK 1.1.0; custom port лишається API-smoke. Точну кількість епізодів задає Unity schedule; trainer cap на один крок вище дає змогу відправити фінальний terminal до завершення.
+
+Windows signal-reader використовує share read/write/delete; reader і fixture writer мають короткий bounded retry для atomic replace. Після виправлення перевірено 16 API-переходів, abort, timeout і 132 Python-тести на двох версіях. Підготовлено, але **не погоджено й не запущено**, пілот seed=11, 8980 рішень, 3600 с runtime budget. Це технічний пілот, не повне дослідження кількох seeds або NN-якість. [Докази, команда й межі](AI_NPC_P406_SUPERVISOR_VERIFICATION.md)
+
+## D-21 · Відтворюваний розклад повторень та bootstrap без зайвого reward
+
+**Реалізовано й перевірено 2026-11-24, P4-06 In Progress.** Frozen train-рецепти не переписуються: Python створює окремий schedule зі стабільними occurrence IDs на кожну epoch та source_case_id. Policy seed і shuffle seed відокремлені від generation seed=1001. C# перевіряє hashes, порядок epoch і повне покриття вихідних ID, виконує рецепти через реальні сенсори. Маніфест зберігає strict case_id/scenario, mapping повторів лежить у schedule й records. Обґрунтування: повторні епізоди мають бути однозначно обліковані без видавання їх за незалежні validation-випадки.
+
+Для bootstrap початковий Python reset обмінюється terminal-only EpisodeInterrupted без запиту дії та без AddReward; наступні rewarded transitions мають точно відповідати маніфесту. Попередній communicator smoke із warmup decision є історичним API-тестом, не маршрутом PPO. Running/Completed/Aborted передаються атомарним локальним файлом у disposable Logs. Python відмовляється продовжувати після Aborted та зберігає valid_run=false; це контроль API-клієнта, не доказ відкидання experience справжнім trainer-ом.
+
+Перевірено 898 train transitions у двох проходах і 16 diagnostic, без зайвих rewarded епізодів, Unity exit 0; Python 117/117 на двох версіях. Decision Maker гри не замінено random: цей клієнт тільки тестує SDK. Тривале навчання й PPO-supervisor ще не виконані. [Докази та межі](AI_NPC_P406_BOOTSTRAP_VERIFICATION.md)
+
+> Доповнення до D-21 від 2026-11-24: explicit technical-failure smoke підтвердив негайне відбракування Python-клієнтом: child exit=1, valid_run=false, prepared=1 / recorded=0. Перший fault fixture мав неправильний порядок обробників; фінальний тест підтвердив саме очікувану причину. [Доказ](../Logs/AI-NPC/P4-06-bootstrap-abort-final-20261124/abort-audit.json).
+
+## D-20 · Train-only coordinator та відокремлений communicator smoke
+
+**Реалізовано й перевірено 2026-11-23, P4-06 In Progress.** CopyAttentionRecipeCoordinator оркеструє sandbox через реальний training-Agent і сенсори, не формує observation-вектор з рецепту. Перевіряє frozen train hashes/manifest до запуску, копіює pending frame/mask до callback, записує дію/ціль/reward та відокремлює generation seed від policy seed. Одна coroutine — один single-pass run; Dispose відновлює тимчасовий світ. Production inference й маски 5/6 збережені.
+
+Capture/technical failure припиняє run та деактивує actor; summary valid_run=false. Це обрано, щоб не приховувати технічні проблеми під reward=0 чи quiet-знімками. EpisodeInterrupted сам по собі не гарантує відкидання PPO transition; реальний запуск має припинятися/відбраковуватися також на Python-боці. Це наступний bootstrap-зріз, не автоматично виконане навчання.
+
+У controlled HeuristicOnly перевірено 449/449 train і дві ін’єкції відмов. Окремий Default communicator smoke передає 8 diagnostic train-derived випадків у Python uniform allowed random, перевіряє terminal/reset та reward, без trainer/optimizer. Random є тестовим клієнтом API, не Decision Maker гри; не використовувати його числа як NN-якість або дослідницьку оцінку ID/OOD. Дубльовані client colliders вимикаються лише в fixture з однією PhysicsScene, не в production-сенсорах. [Докази та відтворення](AI_NPC_P406_COORDINATOR_VERIFICATION.md)
+
+## D-19 · Окремий opt-in training-Agent і parity reward
+
+**Підготовлено й перевірено 2026-11-23, P4-06 In Progress.** Навчальний CopyAttentionTrainingAgent відокремлений від production CopyDecisionAgent. Він використовує той самий CopyDecisionInputV2, 50 ознак, гілку [7] і погоджений reward, але завершує однокроковий епізод через AddReward/EndEpisode. Production лишається InferenceOnly й не отримує ручного utility-Decision Maker. C# reward не вибирає дію, а тільки оцінює переданий індекс для навчання.
+
+Реальний режим вимагає серверного spawned actor, Default без Model та активного communicator; автоматичний heuristic fallback не дозволений. Controlled HeuristicOnly є явним fixture-режимом для перевірки API без оптимізатора, не gameplay-політикою. Один captured frame використовується для входів/маски/reward; reset очищає його й власну sound memory. Геометрію наступного рецепту повинен підготувати окремий coordinator.
+
+Cancel/stale/authority loss не викликають AddReward. Це ще не доказ відкидання transition Python-тренером: EpisodeInterrupted має bootstrap-семантику. До PPO потрібні coordinator, облік/зупинка невалідних runs і communicator smoke. Повторна підготовка з terminal callback блокується, включно із зовнішнім Academy reset. Parity перевірено з Python на 674 audited train/ID × 7 дій; OOD-вектори й optimizer не запускалися. [Докази, API та залишок](AI_NPC_P406_ADAPTER_VERIFICATION.md)
+
+## D-18 · Frozen рецепти, захоплені входи та відкладений OOD
+
+**Погоджено й перевірено 2026-11-23, P4-05.** Користувач прийняв 449 train / 225 ID / 225 OOD, 8 родин, generation seeds 1001/2001/3001, без навчання. Рецепт задає світ/сенсорну доступність, але не 50 чисел для NN; фактичні числа формує наявний кодер. Маніфест і hashes створюються до replay, готовий каталог не перезаписується. Quiet — один випадок на split із задекларованим повтором, активні дублі рецептів/векторів відхиляються.
+
+CopyDecisionTrace зберігає immutable копію входів саме pending-запиту, callback і cancel не підміняють їх пізнішим світом. Старий JSONL-recorder збережений; окремий diagnostic-runner записує повний attention-формат і не претендує на якість навченої політики. Sensor-only train/ID replay не звертається до NN й не обчислює reward; OOD-вектори лишаються відкладеними. Модель вибирається за ID, не за OOD. Generation seeds не означають запуск PPO.
+
+**3758 assertions sensor replay + 274 diagnostic/regression PASS**, 97/97 Python на двох версіях. Batch-only reload lock запобігає втраті coroutine при deferred recompile; це захист disposable fixture, не зміна production-гри. Підготовка навчального адаптера й фактичне навчання ще не виконані. [Контракти, докази й межі](AI_NPC_P405_VERIFICATION.md)
+
+## D-17 · Погоджений протокол оцінювання sensory-intent-v1
+
+**Погоджено користувачем і перевірено 2026-11-23.** `the-copy.expert-attention-evaluation/1`: regret=1−reward, near-optimal за regret≤0.05; усі рівні максимуми прийнятні. Основна macro-частка accepted near-optimal від запланованих випадків: ID≥0.90, OOD≥0.80. Потрібен повний маніфест і нуль accepted-invalid. Це інженерні критерії проміжного surrogate, не емпіричні властивості гри чи доказ переваги NN над argmax.
+
+Обґрунтування: умовна якість отриманих виборів не повинна приховувати технічні відмови, пропуски або невдалий scenario за багатьма простими випадками. Тому reward відсутній у technical outcomes, але вони залишаються в загальній частці accepted від усіх planned; baseline порівнюються на тих самих знімках. Macro має однакову вагу сценаріїв, micro звітується окремо. Missing-сценарії не відкидаються мовчки.
+
+Окремий offline-формат вимагає фактичні 50 спостережень; старий recorder не змінений і не є джерелом таких записів. Pass означає лише виконання gate на переданих даних, provenance незалежно не доведено. Diagnostic/train та довільний epsilon не отримують gate PASS. Seeds не змішуються, модель обирається за ID, OOD — для фіналу. Розмір наборів і seeds ще належать P4-05. **86/86 Python PASS**, без Unity-змін і навчання. P4-04 Done лише в обмеженому погодженому scope; production-reward фізичних наслідків лишається майбутньою роботою. [Контракт, API й докази](AI_NPC_P404_EVALUATION_PROTOCOL.md)
+
 ## D-16 · Проміжний reward експертної уваги
 
 **Погоджено користувачем і реалізовано 2026-11-19, P4-04.** `the-copy.expert-attention/1` — окремий offline-профіль для незмінного sensory-intent-v1. Sound оцінюється за memory strength, інакше live; Light — за strength; видимі A/B — за `0.01 + 0.99 * (1 - distance)`. Continue=1 тільки без доступних сенсорних дій. Дозволений вибір отримує utility/max, недоступний — −1; помилка знімка відхиляється, technical outcomes не отримують reward автоматично.
