@@ -1,0 +1,11 @@
+{
+  "dataset_id": "the-copy.attention-cases/1",
+  "status": "approved-2026-11-23-recipes-only-no-training",
+  "generation_seeds": {"train": 1001, "id": 2001, "ood": 3001},
+  "active_cases_per_family": {"train": 64, "id": 32, "ood": 32},
+  "quiet_cases_per_split": 1,
+  "families": ["quiet", "sound-live", "sound-memory", "light", "player-a", "player-b", "both-players", "competition"],
+  "input_schema": "the-copy.decision-input/sensory-intent-v1",
+  "profile_id": "the-copy.expert-attention/1",
+  "protocol_id": "the-copy.expert-attention-evaluation/1"
+}
