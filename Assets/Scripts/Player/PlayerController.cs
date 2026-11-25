@@ -168,6 +168,12 @@ public class PlayerController : NetworkBehaviour
         // 0. Обробка клавіші [Escape] (спочатку закриває комп'ютер GRiD-87, записку, термінал або стіл, інакше відкриває паузу)
         if (Input.GetKeyDown(KeyCode.Escape))
         {
+            if (NetworkAcousticOscilloscope.IsAnyOscilloscopeOpen)
+            {
+                NetworkAcousticOscilloscope.ActiveLocalOscilloscope.CloseOscilloscope();
+                return;
+            }
+
             if (NetworkGridOsTerminal.IsAnyGridTerminalOpen)
             {
                 NetworkGridOsTerminal.ActiveLocalTerminal.CloseTerminal();
@@ -201,6 +207,7 @@ public class PlayerController : NetworkBehaviour
 
         // Якщо відкрита пауза, комп'ютер GRiD-87, термінал, записка або гравець сидить за столом — рух заблоковано
         if (NetworkBootstrapUI.IsPauseMenuOpen ||
+            NetworkAcousticOscilloscope.IsAnyOscilloscopeOpen ||
             NetworkGridOsTerminal.IsAnyGridTerminalOpen ||
             NetworkKeypadTerminal.IsAnyTerminalOpen ||
             NetworkReadableNote.IsAnyNoteOpen ||
@@ -353,6 +360,7 @@ public class PlayerController : NetworkBehaviour
     {
         if (!IsOwner ||
             NetworkBootstrapUI.IsPauseMenuOpen ||
+            NetworkAcousticOscilloscope.IsAnyOscilloscopeOpen ||
             NetworkGridOsTerminal.IsAnyGridTerminalOpen ||
             NetworkKeypadTerminal.IsAnyTerminalOpen ||
             NetworkReadableNote.IsAnyNoteOpen) return;

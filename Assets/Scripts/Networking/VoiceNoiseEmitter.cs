@@ -30,7 +30,7 @@ namespace TheCopy.Networking
         [Range(0.02f, 0.3f)]
         [SerializeField] private float maxLoudnessRms = 0.06f;
 
-        [Header("2. Просторовий 3D-чат, Фільтр шуму та Рація")]
+        [Header("2. Просторовий 3D-чат, Матеріальна Акустика та Рація")]
         [Tooltip("Максимальна дистанція чутності прямого мовлення (за ТЗ: 15-20м)")]
         [SerializeField] private float maxProximityDistance = 20f;
 
@@ -40,18 +40,22 @@ namespace TheCopy.Networking
         [Tooltip("Частота рації [T] (Гц)")]
         [SerializeField] private float radioVoiceCutoffHz = 2200f;
 
-        [Tooltip("Частота за стіною/дверима (Гц) — робить звук глухим")]
-        [SerializeField] private float occludedCutoffFrequency = 850f;
+        [Tooltip("Частота за звичайною стіною без компонента AcousticSurface (Гц)")]
+        [SerializeField] private float defaultOccludedCutoffHz = 850f;
 
         [Tooltip("УВІМКНИ ТІЛЬКИ ДЛЯ ТЕСТУ ОДНОМУ: щоб чути власний голос у навушниках")]
         [SerializeField] private bool testHearYourself = false;
 
-        [Header("3. Діагностика (Read-Only)")]
+        [Header("3. Діагностика VoIP та Акустичних Матеріалів (Read-Only)")]
         [SerializeField] private string activeMicrophoneName = "Не підключено";
         [SerializeField] private float rawMicRms;
         [SerializeField] private float currentNormalizedLoudness;
         [SerializeField] private bool isTransmittingVoice;
         [SerializeField] private bool isRadioActive;
+        [SerializeField] private int obstaclesBetweenPlayers;
+        [SerializeField] private string dominantObstacleMaterial = "Пряма видимість (Air)";
+        [SerializeField] private float appliedLowPassCutoffHz = 3800f;
+        [SerializeField] private float appliedVolumeTransmission = 1.0f;
 
         public NetworkVariable<float> SyncedVoiceLoudness = new NetworkVariable<float>(
             0f,
@@ -64,7 +68,7 @@ namespace TheCopy.Networking
         private const int ChunkSamples = 550;
         private const int BufferSeconds = 6;
         private const int TotalBufferSamples = SampleRate * BufferSeconds;
-        private const int PreBufferChunks = 3; // Чекаємо 3 пакети (150 мс) перед стартом для безшовного звуку
+        private const int PreBufferChunks = 3;
 
         private AudioClip _micClip;
         private string _micDeviceName;
@@ -73,7 +77,6 @@ namespace TheCopy.Networking
         private byte[] _compressedPacket;
         private float _voiceHoldTimer;
 
-        // Відтворення без розривів
         private AudioSource _voiceAudioSource;
         private AudioLowPassFilter _lowPassFilter;
         private AudioClip _playbackClip;
@@ -89,7 +92,6 @@ namespace TheCopy.Networking
         {
             _voiceAudioSource = GetComponent<AudioSource>();
             _lowPassFilter = GetComponent<AudioLowPassFilter>();
-
             ConfigureSpatialAudio();
         }
 
@@ -115,7 +117,6 @@ namespace TheCopy.Networking
             _silenceChunk = new float[ChunkSamples * 2];
             _fullSilenceBuffer = new float[TotalBufferSamples];
 
-            // stream: false — гарантує відсутність провалів звуку кожні 0.5 сек
             _playbackClip = AudioClip.Create("VoIP_Buffer", TotalBufferSamples, 1, SampleRate, false);
             _voiceAudioSource.clip = _playbackClip;
 
@@ -168,7 +169,7 @@ namespace TheCopy.Networking
                 ProcessLocalMicrophone();
             }
 
-            UpdatePlaybackAndFilter();
+            UpdatePlaybackAndMaterialAcoustics();
         }
 
         private void ProcessLocalMicrophone()
@@ -228,9 +229,13 @@ namespace TheCopy.Networking
             }
         }
 
-        private void UpdatePlaybackAndFilter()
+        /// <summary>
+        /// Розраховує багатошарову акустичну оклюзію голосу крізь стіни різних матеріалів (AcousticSurface):
+        ///   - Зріз частот (AudioLowPassFilter) визначається найщільнішим матеріалом на шляху звукової хвилі
+        ///   - Гучність множиться на коефіцієнт проникності кожного шару: V_eff = Product(T_i)
+        /// </summary>
+        private void UpdatePlaybackAndMaterialAcoustics()
         {
-            // Зупиняємо плеєр, коли пакети не надходять понад 0.35 сек
             if (_voiceAudioSource.isPlaying && Time.time - _lastPacketReceivedTime > 0.35f)
             {
                 _voiceAudioSource.Stop();
@@ -242,30 +247,78 @@ namespace TheCopy.Networking
             if (_remoteRadioMode || (IsOwner && testHearYourself))
             {
                 _voiceAudioSource.spatialBlend = 0f;
+                _voiceAudioSource.volume = 1.0f;
                 _lowPassFilter.cutoffFrequency = _remoteRadioMode ? radioVoiceCutoffHz : cleanVoiceCutoffHz;
+                dominantObstacleMaterial = _remoteRadioMode ? "Радіоканал 2200 Hz [T]" : "Локальний моніторинг";
+                appliedLowPassCutoffHz = _lowPassFilter.cutoffFrequency;
+                appliedVolumeTransmission = 1.0f;
+                obstaclesBetweenPlayers = 0;
                 return;
             }
 
             _voiceAudioSource.spatialBlend = 1.0f;
 
             Camera localCam = Camera.main;
-            if (localCam != null)
-            {
-                Vector3 listenerPos = localCam.transform.position;
-                Vector3 speakerPos = transform.position + Vector3.up * 0.6f;
+            if (localCam == null) return;
 
-                bool isBlockedByWall = false;
-                if (Physics.Linecast(listenerPos, speakerPos, out RaycastHit hit))
+            Vector3 listenerPos = localCam.transform.position;
+            Vector3 speakerPos = transform.position + Vector3.up * 0.6f;
+            Vector3 toSpeaker = speakerPos - listenerPos;
+            float dist = toSpeaker.magnitude;
+
+            float targetCutoff = cleanVoiceCutoffHz;
+            float targetTransmission = 1.0f;
+            int wallCount = 0;
+            string strongestMaterial = "Пряма видимість (Air)";
+
+            if (dist > 0.1f)
+            {
+                RaycastHit[] hits = Physics.RaycastAll(listenerPos, toSpeaker / dist, dist, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+
+                foreach (RaycastHit hit in hits)
                 {
-                    if (hit.transform != transform && hit.transform.root != localCam.transform.root)
+                    if (hit.transform == transform || hit.transform.root == transform.root) continue;
+                    if (hit.transform.root == localCam.transform.root) continue;
+
+                    wallCount++;
+                    AcousticSurface surface = hit.collider.GetComponent<AcousticSurface>();
+                    if (surface != null)
                     {
-                        isBlockedByWall = true;
+                        if (surface.lowPassCutoffHz < targetCutoff)
+                        {
+                            targetCutoff = surface.lowPassCutoffHz;
+                            strongestMaterial = surface.materialType.ToString();
+                        }
+                        targetTransmission *= surface.volumeTransmission;
+                    }
+                    else
+                    {
+                        if (defaultOccludedCutoffHz < targetCutoff)
+                        {
+                            targetCutoff = defaultOccludedCutoffHz;
+                            strongestMaterial = "StandardObstacle";
+                        }
+                        targetTransmission *= 0.45f;
                     }
                 }
-
-                float targetCutoff = isBlockedByWall ? occludedCutoffFrequency : cleanVoiceCutoffHz;
-                _lowPassFilter.cutoffFrequency = Mathf.Lerp(_lowPassFilter.cutoffFrequency, targetCutoff, 12f * Time.deltaTime);
             }
+
+            // Кожна додаткова перешкода понад першу додатково зрізає високі частоти на 15%
+            if (wallCount > 1)
+            {
+                targetCutoff *= Mathf.Pow(0.85f, wallCount - 1);
+            }
+
+            targetCutoff = Mathf.Clamp(targetCutoff, 260f, cleanVoiceCutoffHz);
+            targetTransmission = Mathf.Clamp(targetTransmission, 0.08f, 1.0f);
+
+            _lowPassFilter.cutoffFrequency = Mathf.Lerp(_lowPassFilter.cutoffFrequency, targetCutoff, 12f * Time.deltaTime);
+            _voiceAudioSource.volume = Mathf.Lerp(_voiceAudioSource.volume, targetTransmission, 12f * Time.deltaTime);
+
+            obstaclesBetweenPlayers = wallCount;
+            dominantObstacleMaterial = strongestMaterial;
+            appliedLowPassCutoffHz = _lowPassFilter.cutoffFrequency;
+            appliedVolumeTransmission = _voiceAudioSource.volume;
         }
 
         [ServerRpc]
@@ -327,7 +380,6 @@ namespace TheCopy.Networking
                 _writePos = (_writePos + ChunkSamples) % TotalBufferSamples;
                 _bufferedChunksCount++;
 
-                // Запускаємо відтворення, коли накопичили 3 пакети (150 мс запасу)
                 if (_bufferedChunksCount >= PreBufferChunks)
                 {
                     _voiceAudioSource.timeSamples = 0;
@@ -339,17 +391,13 @@ namespace TheCopy.Networking
                 int playPos = _voiceAudioSource.timeSamples;
                 int leadSamples = (_writePos - playPos + TotalBufferSamples) % TotalBufferSamples;
 
-                // Якщо мережа сильно лагнула і буфер збився — вирівнюємо на 3 чанки вперед
                 if (leadSamples < ChunkSamples / 2 || leadSamples > ChunkSamples * 10)
                 {
                     _writePos = (playPos + ChunkSamples * PreBufferChunks) % TotalBufferSamples;
                 }
 
-                // Записуємо поточний пакет голосу
                 _playbackClip.SetData(_decompressBuffer, _writePos);
                 _writePos = (_writePos + ChunkSamples) % TotalBufferSamples;
-
-                // Одразу затираємо наступну ділянку попереду тишею, щоб старі фрази ніколи не повторилися
                 _playbackClip.SetData(_silenceChunk, _writePos);
             }
         }
