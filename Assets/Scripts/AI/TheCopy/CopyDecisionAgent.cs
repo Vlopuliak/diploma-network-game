@@ -85,7 +85,8 @@ namespace TheCopy.AI
         public void CancelPendingDecision(string reason = "cancelled")
         {
             bool wasPending = _pending;
-            var cancelled = new CopyDecisionTrace(_requestId, _frame, null, null, "no_response", reason, null);
+            var cancelled = wasPending ? new CopyDecisionTrace(_requestId, _frame, null, null, "no_response", reason, null,
+                _observations) : default;
             _pending = false;
             _frame = default;
             Array.Clear(_observations, 0, _observations.Length);
@@ -153,7 +154,7 @@ namespace TheCopy.AI
         private void Finish(int? action, CopyDecisionTarget? target, string status, string reason)
         {
             var trace = new CopyDecisionTrace(_requestId, _frame, action, target, status, reason,
-                _responseLatencyMs);
+                _responseLatencyMs, _observations);
             _pending = false;
             _frame = default;
             Array.Clear(_observations, 0, _observations.Length);

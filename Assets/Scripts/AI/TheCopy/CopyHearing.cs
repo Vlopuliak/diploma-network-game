@@ -18,6 +18,8 @@ namespace TheCopy.AI
         private LayerMask occlusionLayers;
 
         private readonly CopySoundMemory _memory = new CopySoundMemory();
+        public float MemoryLifetime => Mathf.Max(LiveDuration, memoryLifetime);
+        public float LiveWindow => LiveDuration;
 
         private bool CanListen => IsServer && IsSpawned && isActiveAndEnabled;
 

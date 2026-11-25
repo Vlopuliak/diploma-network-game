@@ -33,6 +33,8 @@ namespace TheCopy.Tests
                 P403AgentVerification.Prepare(npc);
             if (P404TraceVerification.Requested)
                 P404TraceVerification.Prepare(npc);
+            if (P406TrainingVerification.Requested || P406CoordinatorVerification.Requested)
+                P406TrainingVerification.Prepare();
 
             CreateSource<NetworkTriggerZone>(folder);
             CreateSource<NetworkInteractiveObject>(folder);
@@ -42,6 +44,8 @@ namespace TheCopy.Tests
 
         internal static void RegisterSources(NetworkManager manager, string folder)
         {
+            if (P406TrainingVerification.Requested || P406CoordinatorVerification.Requested)
+                manager.AddNetworkPrefab(AssetDatabase.LoadAssetAtPath<GameObject>(folder + "/P406TrainingActor.prefab"));
             manager.AddNetworkPrefab(AssetDatabase.LoadAssetAtPath<GameObject>(SourcePath<NetworkTriggerZone>(folder)));
             manager.AddNetworkPrefab(AssetDatabase.LoadAssetAtPath<GameObject>(SourcePath<NetworkInteractiveObject>(folder)));
             manager.AddNetworkPrefab(AssetDatabase.LoadAssetAtPath<GameObject>(SourcePath<NetworkAirlockDoor>(folder)));
@@ -229,6 +233,14 @@ namespace TheCopy.Tests
                     yield return P403AgentVerification.Verify(host, client, npc);
                 if (P404TraceVerification.Requested)
                     P404TraceVerification.Verify(host, client, npc);
+                if (P405AttentionCaseVerification.Requested)
+                    yield return P405AttentionCaseVerification.Verify(host, client, npc);
+                if (P405RecipeVerification.Requested)
+                    yield return P405RecipeVerification.Verify(host, client, npc);
+                if (P406TrainingVerification.Requested)
+                    yield return P406TrainingVerification.Verify(host, client);
+                if (P406CoordinatorVerification.Requested)
+                    yield return P406CoordinatorVerification.Verify(host, client);
                 yield return P403PlayerSightVerification.Verify(host, client, npc);
             }
         }
