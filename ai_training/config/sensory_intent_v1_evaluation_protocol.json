@@ -1,0 +1,10 @@
+{
+  "protocol_id": "the-copy.expert-attention-evaluation/1",
+  "status": "approved-2026-11-23-no-training-authorization",
+  "profile_id": "the-copy.expert-attention/1",
+  "near_optimal_regret": 0.05,
+  "primary_metric": "macro.accepted_near_optimal_rate_of_planned",
+  "minimum_by_split": {"id": 0.9, "ood": 0.8},
+  "require_complete_manifest": true,
+  "maximum_accepted_invalid_count": 0
+}
